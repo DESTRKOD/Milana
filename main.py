@@ -2,16 +2,21 @@ import os
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from google import genai
+import google.generativeai as genai
 
 app = FastAPI()
 
-# Базовый роут для отдачи HTML-страницы
+# Инициализация API ключа
+api_key = os.environ.get("GEMINI_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
+
+# Главная страница (отдаем index.html)
 @app.get("/")
 async def read_root():
     return FileResponse("index.html")
 
-# База данных ситуаций и скрытых интересов ролей из ПДФ
+# Полная база ситуаций и скрытых интересов из PDF
 SCENARIOS_DATA = {
     "1": {
         "title": "Договор родных дороже?",
@@ -71,68 +76,60 @@ class DebriefPayload(BaseModel):
 
 @app.post("/api/chat")
 async def chat_endpoint(payload: ChatPayload):
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return {"reply": "Ошибка: Не настроен GEMINI_API_KEY на Vercel."}
+    try:
+        scenario_info = SCENARIOS_DATA.get(payload.scenarioId, SCENARIOS_DATA["1"])
+        
+        # Автоматический выбор противоположной роли для ИИ
+        all_roles = list(scenario_info["roles"].keys())
+        ai_role = next((r for r in all_roles if r != payload.userRole), all_roles[0])
+        ai_role_goal = scenario_info["roles"].get(ai_role, "")
+        user_role_goal = scenario_info["roles"].get(payload.userRole, "")
 
-    client = genai.Client(api_key=api_key)
-    scenario_info = SCENARIOS_DATA.get(payload.scenarioId, SCENARIOS_DATA["1"])
-    
-    # Автоматическое определение роли ИИ
-    all_roles = list(scenario_info["roles"].keys())
-    ai_role = next((r for r in all_roles if r != payload.userRole), all_roles[0])
-    ai_role_goal = scenario_info["roles"].get(ai_role, "")
-    user_role_goal = scenario_info["roles"].get(payload.userRole, "")
-
-    prompt = f"""
-    Ты — жесткий, профессиональный и эмоционально устойчивый оппонент в управленческом поединке.
-    
-    СИТУАЦИЯ:
-    {scenario_info['context']}
-    
-    ТЕКУЩИЕ РОЛИ В РАУНДЕ:
-    Пользователь играет за: {payload.userRole} (Его цель: {user_role_goal})
-    Твоя роль: {ai_role} (Твоя цель: {ai_role_goal})
-    
-    ПРАВИЛА ТВОЕГО ПОВЕДЕНИЯ:
-    1. Не выходи из роли {ai_role}. Отвечай строго от первого лица.
-    2. Удерживай свои интересы ({ai_role_goal}). Не сдавай позиции без сильных встречных уступок.
-    3. Отвечай РАЗГОВОРНЫМ устным языком. Длина ответа — строго 1-2 коротких предложения (максимум 20 слов).
-    4. Задавай встречные вопросы, используй перехват инициативы.
-    
-    Реплика оппонента: "{payload.text}"
-    """
-    
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt
-    )
-    return {"reply": response.text.strip()}
+        prompt = f"""
+        Ты — жесткий, профессиональный и эмоционально устойчивый оппонент в управленческом поединке.
+        
+        СИТУАЦИЯ:
+        {scenario_info['context']}
+        
+        ТЕКУЩИЕ РОЛИ В РАУНДЕ:
+        Пользователь играет за: {payload.userRole} (Его цель: {user_role_goal})
+        Твоя роль: {ai_role} (Твоя цель: {ai_role_goal})
+        
+        ПРАВИЛА ТВОЕГО ПОВЕДЕНИЯ:
+        1. Не выходи из роли {ai_role}. Отвечай строго от первого лица.
+        2. Удерживай свои интересы ({ai_role_goal}). Не сдавай позиции без сильных встречных уступок.
+        3. Отвечай РАЗГОВОРНЫМ устным языком. Длина ответа — строго 1-2 коротких предложения (максимум 20 слов).
+        4. Задавай встречные вопросы, используй перехват инициативы.
+        
+        Реплика оппонента: "{payload.text}"
+        """
+        
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        return {"reply": response.text.strip()}
+    except Exception as e:
+        return {"reply": f"Ошибка ИИ: {str(e)}"}
 
 @app.post("/api/debrief")
 async def debrief_endpoint(payload: DebriefPayload):
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return {"analysis": "Ошибка: Отсутствует API ключ."}
-
-    client = genai.Client(api_key=api_key)
-    history_text = "\n".join(payload.history)
-    
-    prompt = f"""
-    Ты — Судья квалификационной коллегии турнира по переговорам.
-    Проанализируй следующий 8-минутный поединок (где были 2 раунда со сменой ролей):
-    
-    {history_text}
-    
-    Дай структурированный разбор:
-    1. Удержание позиций: Удалось ли защитить интересы персонажей в обоих раундах?
-    2. Главная ошибка: Где была упущена инициатива или допущена слабая уступка?
-    3. Совет для победы: 1 ключевой речевой модуль для реального турнира.
-    Форматируй текст лаконично, без эмодзи.
-    """
-    
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt
-    )
-    return {"analysis": response.text.strip()}
+    try:
+        history_text = "\n".join(payload.history)
+        
+        prompt = f"""
+        Ты — Судья квалификационной коллегии турнира по переговорам.
+        Проанализируй следующий 8-минутный поединок (где были 2 раунда со сменой ролей):
+        
+        {history_text}
+        
+        Дай структурированный разбор:
+        1. Удержание позиций: Удалось ли защитить интересы персонажей в обоих раундах?
+        2. Главная ошибка: Где была упущена инициатива или допущена слабая уступка?
+        3. Совет для победы: 1 ключевой речевой модуль для реального турнира.
+        Форматируй текст лаконично, без эмодзи.
+        """
+        
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        return {"analysis": response.text.strip()}
+    except Exception as e:
+        return {"analysis": f"Ошибка анализа: {str(e)}"}
