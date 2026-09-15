@@ -1,9 +1,17 @@
 import os
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from google import genai
 
 app = FastAPI()
+
+# 1. Возвращаем index.html при заходе на корень сайта
+@app.get("/")
+async def read_root():
+    return FileResponse("index.html")
+
+# Далее идет ваш остальной код (SCENARIOS_DATA, /api/chat, /api/debrief и т.д.)
 
 # Полные тексты ситуаций и интересов из PDF
 SCENARIOS_DATA = {
