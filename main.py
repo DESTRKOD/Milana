@@ -2,21 +2,21 @@ import os
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 app = FastAPI()
 
-# Инициализация API ключа
+# Инициализация нового клиента Gemini
 api_key = os.environ.get("GEMINI_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
+client = genai.Client(api_key=api_key) if api_key else None
 
 # Главная страница (отдаем index.html)
 @app.get("/")
 async def read_root():
     return FileResponse("index.html")
 
-# Полная база ситуаций и скрытых интересов из PDF
+# Полная база ситуаций и скрытых интересов
 SCENARIOS_DATA = {
     "1": {
         "title": "Договор родных дороже?",
@@ -77,9 +77,11 @@ class DebriefPayload(BaseModel):
 @app.post("/api/chat")
 async def chat_endpoint(payload: ChatPayload):
     try:
+        if not client:
+            return {"reply": "Ошибка: Не настроен GEMINI_API_KEY"}
+
         scenario_info = SCENARIOS_DATA.get(payload.scenarioId, SCENARIOS_DATA["1"])
         
-        # Автоматический выбор противоположной роли для ИИ
         all_roles = list(scenario_info["roles"].keys())
         ai_role = next((r for r in all_roles if r != payload.userRole), all_roles[0])
         ai_role_goal = scenario_info["roles"].get(ai_role, "")
@@ -93,17 +95,17 @@ async def chat_endpoint(payload: ChatPayload):
         
         Правила:
         1. Отвечай строго от первого лица.
-        2. Отвечай РАЗГОВОРНЫМ языком, строго 1 короткое предложение (до 15 слов).
+        2. Отвечай разговорным языком, строго 1 короткое предложение (до 15 слов).
         3. Задавай встречный вопрос или перехватывай инициативу.
         
         Реплика оппонента: "{payload.text}"
         """
         
-        # Модель gemini-1.5-flash-8b обеспечит ответ за 1 секунду
-        model = genai.GenerativeModel('gemini-1.5-flash-8b')
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        # Вызов асинхронной модели нового SDK
+        response = await client.aio.models.generate_content(
+            model='gemini-1.5-flash-8b',
+            contents=prompt,
+            config=types.GenerateContentConfig(
                 max_output_tokens=60,
                 temperature=0.7
             )
@@ -115,6 +117,9 @@ async def chat_endpoint(payload: ChatPayload):
 @app.post("/api/debrief")
 async def debrief_endpoint(payload: DebriefPayload):
     try:
+        if not client:
+            return {"analysis": "Ошибка: Не настроен GEMINI_API_KEY"}
+
         history_text = "\n".join(payload.history)
         
         prompt = f"""
@@ -127,10 +132,10 @@ async def debrief_endpoint(payload: DebriefPayload):
         3. Совет для победы
         """
         
-        model = genai.GenerativeModel('gemini-1.5-flash-8b')
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = await client.aio.models.generate_content(
+            model='gemini-1.5-flash-8b',
+            contents=prompt,
+            config=types.GenerateContentConfig(
                 max_output_tokens=250,
                 temperature=0.5
             )
