@@ -6,14 +6,12 @@ from google import genai
 
 app = FastAPI()
 
-# 1. Возвращаем index.html при заходе на корень сайта
+# Базовый роут для отдачи HTML-страницы
 @app.get("/")
 async def read_root():
     return FileResponse("index.html")
 
-# Далее идет ваш остальной код (SCENARIOS_DATA, /api/chat, /api/debrief и т.д.)
-
-# Полные тексты ситуаций и интересов из PDF
+# База данных ситуаций и скрытых интересов ролей из ПДФ
 SCENARIOS_DATA = {
     "1": {
         "title": "Договор родных дороже?",
@@ -80,7 +78,7 @@ async def chat_endpoint(payload: ChatPayload):
     client = genai.Client(api_key=api_key)
     scenario_info = SCENARIOS_DATA.get(payload.scenarioId, SCENARIOS_DATA["1"])
     
-    # Автоматически определяем противоположную роль
+    # Автоматическое определение роли ИИ
     all_roles = list(scenario_info["roles"].keys())
     ai_role = next((r for r in all_roles if r != payload.userRole), all_roles[0])
     ai_role_goal = scenario_info["roles"].get(ai_role, "")
@@ -114,8 +112,10 @@ async def chat_endpoint(payload: ChatPayload):
 @app.post("/api/debrief")
 async def debrief_endpoint(payload: DebriefPayload):
     api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return {"analysis": "Ошибка: Отсутствует API ключ."}
+
     client = genai.Client(api_key=api_key)
-    
     history_text = "\n".join(payload.history)
     
     prompt = f"""
