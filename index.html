@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title></title>
+    <title>Управленческий поединок</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .liquid-glass {
@@ -23,6 +23,7 @@
             filter: blur(30px);
             border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
             animation: morph 8s ease-in-out infinite, rotate 25s linear infinite;
+            transition: transform 0.05s ease-out, filter 0.05s ease-out;
         }
         .liquid-blob.speaking {
             filter: blur(20px) drop-shadow(0 0 40px rgba(168, 85, 247, 0.8));
@@ -80,11 +81,11 @@
 
         <div class="liquid-glass rounded-2xl p-4 my-4 space-y-2 max-h-36 overflow-y-auto hide-scrollbar">
             <div id="activeRoleTitle" class="text-xs font-bold uppercase tracking-wider text-purple-400">---</div>
-            <div id="activeRoleGoal" class="text-xs text-zinc-300 leading-relaxed">Нажмите микрофон и начинайте переговоры.</div>
+            <div id="activeRoleGoal" class="text-xs text-zinc-300 leading-relaxed">Нажмите на кнопку снизу, чтобы начать говорить.</div>
         </div>
 
         <div class="relative my-auto flex items-center justify-center py-12">
-            <div id="aiVisualizer" class="w-44 h-44 md:w-56 md:h-56 liquid-blob transition-all duration-500"></div>
+            <div id="aiVisualizer" class="w-44 h-44 md:w-56 md:h-56 liquid-blob"></div>
         </div>
 
         <div class="space-y-3">
@@ -128,9 +129,17 @@
         let currentRound = 1;
         let timeLeft = 480;
         let timerInterval = null;
+
         let recognition = null;
-        let isSpeaking = false;
+        let isRecording = false;
         let transcriptHistory = [];
+        let accumulatedText = "";
+
+        // Audio Context для Эквалайзера
+        let audioCtx = null;
+        let analyser = null;
+        let microphoneStream = null;
+        let animFrameId = null;
 
         function loadScenarioData() {
             selectedScenario = document.getElementById('scenarioSelect').value;
@@ -177,7 +186,7 @@
                 }
             }, 1000);
 
-            initSpeech();
+            initAudioAndSpeech();
         }
 
         function updateFightUI() {
@@ -185,38 +194,109 @@
             document.getElementById('activeRoleTitle').innerText = `Ваша роль: ${selectedRole}`;
         }
 
-        function initSpeech() {
+        function initAudioAndSpeech() {
             const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (Speech) {
                 recognition = new Speech();
                 recognition.lang = 'ru-RU';
-                recognition.onstart = () => {
-                    isSpeaking = true;
-                    document.getElementById('micStatusText').innerText = "Слушаю...";
-                    document.getElementById('aiVisualizer').classList.add('speaking');
-                };
+                recognition.continuous = true;
+                recognition.interimResults = true;
+
                 recognition.onresult = (e) => {
-                    const text = e.results[0][0].transcript;
-                    transcriptHistory.push(`[Подруга (${selectedRole})]: ${text}`);
-                    sendToBackend(text);
+                    let currentTranscript = "";
+                    for (let i = e.resultIndex; i < e.results.length; ++i) {
+                        currentTranscript += e.results[i][0].transcript;
+                    }
+                    accumulatedText = currentTranscript;
+                    document.getElementById('activeRoleGoal').innerText = `Вы говорите: "${accumulatedText}"`;
                 };
-                recognition.onend = () => {
-                    isSpeaking = false;
-                    document.getElementById('micStatusText').innerText = "Нажмите, чтобы говорить";
-                    document.getElementById('aiVisualizer').classList.remove('speaking');
+
+                recognition.onerror = (err) => {
+                    console.error("Speech Rec Error:", err);
                 };
             }
         }
 
-        function handleMicClick() {
-            if (recognition) {
-                if (isSpeaking) recognition.stop();
-                else recognition.start();
+        async function handleMicClick() {
+            const statusText = document.getElementById('micStatusText');
+
+            if (!isRecording) {
+                // Включаем запись
+                isRecording = true;
+                accumulatedText = "";
+                statusText.innerText = "Слушаю вас... (Нажмите еще раз, чтобы ответить)";
+                
+                startEqualizer();
+                if (recognition) {
+                    try { recognition.start(); } catch(e){}
+                }
+            } else {
+                // Выключаем запись и отправляем ответ
+                isRecording = false;
+                statusText.innerText = "ИИ обрабатывает ваш ответ...";
+                stopEqualizer();
+                
+                if (recognition) {
+                    recognition.stop();
+                }
+
+                setTimeout(() => {
+                    if (accumulatedText.trim().length > 0) {
+                        transcriptHistory.push(`[Подруга (${selectedRole})]: ${accumulatedText}`);
+                        sendToBackend(accumulatedText);
+                    } else {
+                        statusText.innerText = "Не услышал реплику. Нажмите еще раз";
+                    }
+                }, 300);
             }
+        }
+
+        async function startEqualizer() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                microphoneStream = stream;
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioCtx.createAnalyser();
+                const source = audioCtx.createMediaStreamSource(stream);
+                source.connect(analyser);
+                analyser.fftSize = 32;
+
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                const blob = document.getElementById('aiVisualizer');
+
+                function renderFrame() {
+                    if (!isRecording) return;
+                    animFrameId = requestAnimationFrame(renderFrame);
+                    analyser.getByteFrequencyData(dataArray);
+
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) {
+                        sum += dataArray[i];
+                    }
+                    let average = sum / dataArray.length;
+
+                    let scale = 1 + (average / 140);
+                    let glow = average / 3;
+                    blob.style.transform = `scale(${scale})`;
+                    blob.style.filter = `blur(20px) drop-shadow(0 0 ${glow}px rgba(168, 85, 247, 0.9))`;
+                }
+                renderFrame();
+            } catch (err) {
+                console.error("Микрофон недоступен:", err);
+            }
+        }
+
+        function stopEqualizer() {
+            if (animFrameId) cancelAnimationFrame(animFrameId);
+            if (microphoneStream) {
+                microphoneStream.getTracks().forEach(track => track.stop());
+            }
+            const blob = document.getElementById('aiVisualizer');
+            blob.style.transform = 'scale(1)';
+            blob.style.filter = 'blur(30px)';
         }
 
         async function sendToBackend(text) {
-            document.getElementById('micStatusText').innerText = "ИИ думает...";
             try {
                 const res = await fetch('/api/chat', {
                     method: 'POST',
@@ -238,8 +318,16 @@
         function speak(text) {
             const utter = new SpeechSynthesisUtterance(text);
             utter.lang = 'ru-RU';
-            utter.onstart = () => document.getElementById('aiVisualizer').classList.add('speaking');
-            utter.onend = () => document.getElementById('aiVisualizer').classList.remove('speaking');
+            
+            utter.onstart = () => {
+                document.getElementById('aiVisualizer').classList.add('speaking');
+                document.getElementById('micStatusText').innerText = "ИИ отвечает...";
+            };
+            utter.onend = () => {
+                document.getElementById('aiVisualizer').classList.remove('speaking');
+                document.getElementById('micStatusText').innerText = "Нажмите, чтобы говорить";
+            };
+            
             window.speechSynthesis.speak(utter);
         }
 
