@@ -40,7 +40,6 @@
 </head>
 <body class="h-full flex flex-col justify-between p-4 md:p-8 select-none overflow-hidden bg-black">
 
-    <!-- Фоны Liquid Glow -->
     <div class="fixed top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 liquid-blob opacity-30 pointer-events-none"></div>
 
     <!-- ЭКРАН 1: Настройка -->
@@ -59,9 +58,7 @@
 
             <div class="space-y-2">
                 <label class="text-xs uppercase tracking-widest text-zinc-400 font-semibold">Стартовая роль (Первые 4 мин)</label>
-                <div class="grid grid-cols-2 gap-3" id="roleContainer">
-                    <!-- Заполняется JS -->
-                </div>
+                <div class="grid grid-cols-2 gap-3" id="roleContainer"></div>
             </div>
 
             <button onclick="startSession()" class="w-full liquid-glass-active hover:bg-white/10 text-white font-medium py-4 rounded-2xl transition duration-300 flex items-center justify-center gap-2">
@@ -73,8 +70,6 @@
 
     <!-- ЭКРАН 2: Поединок -->
     <div id="screenFight" class="hidden relative z-10 flex-1 flex flex-col justify-between max-w-md w-full mx-auto py-4">
-        
-        <!-- Шапка -->
         <div class="liquid-glass rounded-2xl p-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
@@ -83,18 +78,15 @@
             <div id="timerDisplay" class="font-mono text-xl font-bold tracking-tight text-white">08:00</div>
         </div>
 
-        <!-- Шпаргалка Роли -->
         <div class="liquid-glass rounded-2xl p-4 my-4 space-y-2 max-h-36 overflow-y-auto hide-scrollbar">
             <div id="activeRoleTitle" class="text-xs font-bold uppercase tracking-wider text-purple-400">---</div>
-            <div id="activeRoleGoal" class="text-xs text-zinc-300 leading-relaxed">---</div>
+            <div id="activeRoleGoal" class="text-xs text-zinc-300 leading-relaxed">Нажмите микрофон и начинайте переговоры.</div>
         </div>
 
-        <!-- Visualizer -->
         <div class="relative my-auto flex items-center justify-center py-12">
             <div id="aiVisualizer" class="w-44 h-44 md:w-56 md:h-56 liquid-blob transition-all duration-500"></div>
         </div>
 
-        <!-- Кнопка микрофона -->
         <div class="space-y-3">
             <button id="micBtn" onclick="handleMicClick()" class="w-full liquid-glass hover:bg-white/10 text-white font-medium py-5 rounded-3xl transition duration-300 flex items-center justify-center gap-3">
                 <svg id="micIcon" class="w-6 h-6 stroke-current fill-none stroke-2" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
@@ -112,10 +104,10 @@
             </div>
 
             <div id="debriefContent" class="text-xs md:text-sm text-zinc-300 leading-relaxed space-y-4 max-h-80 overflow-y-auto hide-scrollbar">
-                Анализируем записи поединка...
+                Анализируем поединок...
             </div>
 
-            <button onclick="resetApp()" class="w-full liquid-glass-active hover:bg-white/10 text-white font-medium py-4 rounded-2xl transition duration-300 flex items-center justify-center gap-2">
+            <button onclick="location.reload()" class="w-full liquid-glass-active hover:bg-white/10 text-white font-medium py-4 rounded-2xl transition duration-300 flex items-center justify-center gap-2">
                 <svg class="w-5 h-5 stroke-current fill-none stroke-2" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
                 <span>Пройти снова</span>
             </button>
@@ -123,15 +115,15 @@
     </div>
 
     <script>
-        const scenarios = {
-            1: { title: "Договор родных дороже?", roles: ["Аркадий", "Алексей"] },
-            2: { title: "Подарок от троих", roles: ["Александр", "Сергей"] },
-            3: { title: "Отпустите меня", roles: ["Анна", "Родители"] },
-            4: { title: "Компьютерные войны", roles: ["Мама", "Папа"] },
-            5: { title: "Удачное собеседование", roles: ["Молодой специалист", "Приятель"] }
+        const rolesMap = {
+            "1": ["Аркадий", "Алексей"],
+            "2": ["Александр", "Сергей"],
+            "3": ["Анна", "Родители"],
+            "4": ["Мама", "Папа"],
+            "5": ["Молодой специалист", "Приятель"]
         };
 
-        let selectedScenario = 1;
+        let selectedScenario = "1";
         let selectedRole = "";
         let currentRound = 1;
         let timeLeft = 480;
@@ -145,7 +137,7 @@
             const container = document.getElementById('roleContainer');
             container.innerHTML = '';
             
-            scenarios[selectedScenario].roles.forEach((role, idx) => {
+            rolesMap[selectedScenario].forEach((role, idx) => {
                 const btn = document.createElement('button');
                 btn.className = `p-4 rounded-2xl text-xs font-medium text-left border transition ${idx === 0 ? 'liquid-glass-active border-purple-500/50' : 'liquid-glass border-transparent'}`;
                 btn.innerText = role;
@@ -156,7 +148,7 @@
                 };
                 container.appendChild(btn);
             });
-            selectedRole = scenarios[selectedScenario].roles[0];
+            selectedRole = rolesMap[selectedScenario][0];
         }
 
         function startSession() {
@@ -174,10 +166,9 @@
                 if (timeLeft === 240) {
                     currentRound = 2;
                     if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
-                    const roles = scenarios[selectedScenario].roles;
+                    const roles = rolesMap[selectedScenario];
                     selectedRole = roles.find(r => r !== selectedRole);
                     updateFightUI();
-                    sendToBackend("SYSTEM_SWITCH", "Смена ролей. Переключить контекст.");
                 }
 
                 if (timeLeft <= 0) {
@@ -192,7 +183,6 @@
         function updateFightUI() {
             document.getElementById('roundIndicator').innerText = `Раунд ${currentRound} / 2`;
             document.getElementById('activeRoleTitle').innerText = `Ваша роль: ${selectedRole}`;
-            document.getElementById('activeRoleGoal').innerText = `Отстаивайте позиции роли «${selectedRole}». По истечении раунда роли поменяются.`;
         }
 
         function initSpeech() {
@@ -207,8 +197,8 @@
                 };
                 recognition.onresult = (e) => {
                     const text = e.results[0][0].transcript;
-                    transcriptHistory.push(`[Подруга]: ${text}`);
-                    sendToBackend("USER_SPEECH", text);
+                    transcriptHistory.push(`[Подруга (${selectedRole})]: ${text}`);
+                    sendToBackend(text);
                 };
                 recognition.onend = () => {
                     isSpeaking = false;
@@ -225,25 +215,23 @@
             }
         }
 
-        async function sendToBackend(type, text) {
+        async function sendToBackend(text) {
             document.getElementById('micStatusText').innerText = "ИИ думает...";
             try {
                 const res = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        type: type,
                         scenarioId: selectedScenario,
                         userRole: selectedRole,
-                        text: text,
-                        history: transcriptHistory
+                        text: text
                     })
                 });
                 const data = await res.json();
                 transcriptHistory.push(`[ИИ]: ${data.reply}`);
                 speak(data.reply);
             } catch (err) {
-                document.getElementById('micStatusText').innerText = "Ошибка соединения";
+                document.getElementById('micStatusText').innerText = "Ошибка сети";
             }
         }
 
@@ -253,7 +241,6 @@
             utter.onstart = () => document.getElementById('aiVisualizer').classList.add('speaking');
             utter.onend = () => document.getElementById('aiVisualizer').classList.remove('speaking');
             window.speechSynthesis.speak(utter);
-            document.getElementById('micStatusText').innerText = "Нажмите, чтобы говорить";
         }
 
         async function finishSession() {
@@ -267,10 +254,6 @@
             });
             const data = await res.json();
             document.getElementById('debriefContent').innerText = data.analysis;
-        }
-
-        function resetApp() {
-            location.reload();
         }
 
         loadScenarioData();
